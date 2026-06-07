@@ -67,14 +67,23 @@ async def risk_analysis(request: RiskRequest) -> RiskResponse:
         logger.exception("Risk analysis failed for session '%s'", request.session_id)
         raise HTTPException(status_code=500, detail="Risk analysis failed.") from exc
 
+    need_translation = request.language != "English"
+
     translate_flag = (
         (lambda f: _translate_flag(f, request.language))
-        if request.language != "English"
+        if need_translation
         else (lambda f: f)
     )
+
+    section_labels = {
+        "red": translate("Red Flags", request.language) if need_translation else "Red Flags",
+        "yellow": translate("Yellow Flags", request.language) if need_translation else "Yellow Flags",
+        "green": translate("Green Flags", request.language) if need_translation else "Green Flags",
+    }
 
     return RiskResponse(
         red_flags=[translate_flag(f) for f in report.red_flags],
         yellow_flags=[translate_flag(f) for f in report.yellow_flags],
         green_flags=[translate_flag(f) for f in report.green_flags],
+        section_labels=section_labels,
     )

@@ -605,6 +605,28 @@ body {
   margin-bottom: 4px;
 }
 
+.cit-text {
+  display: block;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.cit-expand {
+  display: inline-block;
+  margin-top: 6px;
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cit-expand:hover { color: var(--secondary); }
+
 .loading-bubble {
   align-self: flex-start;
   background: var(--surface);

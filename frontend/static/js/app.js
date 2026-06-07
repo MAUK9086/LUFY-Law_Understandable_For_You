@@ -199,10 +199,14 @@ async function runAnalysis() {
 // ── Risk dashboard ─────────────────────────────────────────────────────────────
 
 function _renderRiskDashboard(data) {
+  const labels = data.section_labels || {
+    red: "Red Flags", yellow: "Yellow Flags", green: "Green Flags",
+  };
+
   const sections = [
-    { key: "red_flags",    label: "Red Flags",    cls: "red" },
-    { key: "yellow_flags", label: "Yellow Flags", cls: "yellow" },
-    { key: "green_flags",  label: "Green Flags",  cls: "green" },
+    { key: "red_flags",    label: labels.red,    cls: "red" },
+    { key: "yellow_flags", label: labels.yellow, cls: "yellow" },
+    { key: "green_flags",  label: labels.green,  cls: "green" },
   ];
 
   riskContent.innerHTML = sections.map(({ key, label, cls }) => {
@@ -275,10 +279,10 @@ async function sendQuery() {
     }
 
     const data = await res.json();
-    _appendBotResponse(data.answer, data.sources || []);
+    _appendBotResponse(data.answer, data.sources || [], query);
   } catch {
     loadingEl.remove();
-    _appendBotResponse("Network error. Please try again.", []);
+    _appendBotResponse("Network error. Please try again.", [], "");
   }
 }
 
@@ -299,7 +303,7 @@ function _appendLoadingBubble() {
   return el;
 }
 
-function _appendBotResponse(answer, sources) {
+function _appendBotResponse(answer, sources, query) {
   const wrap = document.createElement("div");
   wrap.className = "bot-response-wrap";
 
@@ -314,23 +318,46 @@ function _appendBotResponse(answer, sources) {
 
     const toggle = document.createElement("button");
     toggle.className = "citation-toggle";
-    toggle.innerHTML = `<span class="cit-icon">📎</span> ${sources.length} document source${sources.length !== 1 ? "s" : ""} <span class="cit-arrow open">▾</span>`;
+    toggle.innerHTML = `<span class="cit-icon">&#128206;</span> ${sources.length} passage${sources.length !== 1 ? "s" : ""} retrieved <span class="cit-arrow open">&#9660;</span>`;
 
     const citList = document.createElement("div");
     citList.className = "citations open";
 
     sources.forEach((src, i) => {
+      const excerpt = _extractRelevantSentences(src, query || "", 3);
+      const isTrimmed = excerpt.length < src.trim().length - 10;
+
       const block = document.createElement("div");
       block.className = "citation-block";
-      block.innerHTML = `<span class="cit-label">Source ${i + 1}</span>${_escapeHtml(src)}`;
+
+      const label = document.createElement("span");
+      label.className = "cit-label";
+      label.textContent = `Passage ${i + 1}`;
+      block.appendChild(label);
+
+      const text = document.createElement("span");
+      text.className = "cit-text";
+      text.textContent = excerpt;
+      block.appendChild(text);
+
+      if (isTrimmed) {
+        const expand = document.createElement("button");
+        expand.className = "cit-expand";
+        expand.textContent = "Show full passage";
+        expand.addEventListener("click", () => {
+          text.textContent = src.trim();
+          expand.remove();
+        });
+        block.appendChild(expand);
+      }
+
       citList.appendChild(block);
     });
 
     toggle.addEventListener("click", () => {
       const isOpen = citList.classList.toggle("open");
       const arrow = toggle.querySelector(".cit-arrow");
-      arrow.textContent = isOpen ? "▾" : "▸";
-      arrow.classList.toggle("open", isOpen);
+      arrow.innerHTML = isOpen ? "&#9660;" : "&#9654;";
     });
 
     citContainer.appendChild(toggle);
@@ -343,6 +370,55 @@ function _appendBotResponse(answer, sources) {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * Extract the most query-relevant sentences from a retrieved chunk.
+ *
+ * Splits the chunk on sentence boundaries, scores each sentence by how many
+ * non-trivial query words it contains, and returns the top sentences in their
+ * original order joined by " … ". Falls back to the full text when the chunk
+ * is short enough that trimming would not help.
+ *
+ * @param {string} chunkText - Full retrieved chunk text.
+ * @param {string} query     - The user's question.
+ * @param {number} maxSents  - Maximum number of sentences to keep (default 3).
+ * @returns {string} Relevant excerpt, or the original text if short.
+ */
+function _extractRelevantSentences(chunkText, query, maxSents = 3) {
+  const sentences = chunkText
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 10);
+
+  if (sentences.length <= maxSents) return chunkText.trim();
+
+  const stopWords = new Set([
+    "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "is", "was", "are", "were", "be", "been", "being",
+    "it", "its", "that", "this", "these", "those", "by", "from", "as",
+  ]);
+
+  const queryWords = query
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !stopWords.has(w));
+
+  const scored = sentences.map((s, i) => {
+    const lower = s.toLowerCase();
+    const score = queryWords.reduce((acc, w) => acc + (lower.includes(w) ? 1 : 0), 0);
+    return { i, s, score };
+  });
+
+  const topIndices = scored
+    .slice()
+    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .slice(0, maxSents)
+    .map((x) => x.i)
+    .sort((a, b) => a - b);
+
+  return topIndices.map((idx) => sentences[idx]).join(" … ");
+}
 
 /**
  * Convert the structured summary text (with **bold** markers and • bullets)

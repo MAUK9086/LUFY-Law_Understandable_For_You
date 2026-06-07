@@ -70,11 +70,18 @@ class RiskResponse(BaseModel):
         red_flags: Unfair or risky clauses.
         yellow_flags: Vague or missing clauses.
         green_flags: Protective or fair clauses.
+        section_labels: Translated display names for the three categories,
+            keyed as "red", "yellow", "green".
     """
 
     red_flags: list[RiskFlag]
     yellow_flags: list[RiskFlag]
     green_flags: list[RiskFlag]
+    section_labels: dict[str, str] = {
+        "red": "Red Flags",
+        "yellow": "Yellow Flags",
+        "green": "Green Flags",
+    }
 
 
 class QueryRequest(BaseModel):
