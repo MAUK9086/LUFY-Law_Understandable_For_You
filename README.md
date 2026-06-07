@@ -1,183 +1,174 @@
-# 📜 LUFY - Law Understandable For You
+# LUFY — Law Understandable For You
 
-LUFY is a platform that simplifies the process of summarizing legal documents, making legal content accessible to a broader audience. It allows users to upload legal documents in various formats and generates summaries in local languages like Hindi, Gujarati, Marathi, and more. Additionally, LUFY enables users to query specific sections of documents, promoting better understanding and accessibility for non-English speakers.
-
----
-
-## 📖 Table of Contents
-
-1. [Project Overview](#project-overview)
-2. [Key Features](#key-features)
-3. [Tech Stack](#tech-stack)
-4. [Setup and Installation](#setup-and-installation)
-5. [Usage Instructions](#usage-instructions)
-6. [API Endpoints](#api-endpoints)
-7. [Frontend Overview](#frontend-overview)
-8. [Backend Overview](#backend-overview)
-9. [Future Improvements](#future-improvements)
-10. [License](#license)
+LUFY simplifies complex legal documents into plain-language summaries, risk assessments, and direct answers — all in your preferred Indian language. Upload a PDF, DOCX, or TXT and get instant insights powered by a full RAG pipeline.
 
 ---
 
-## 🌟 Project Overview
+## Architecture
 
-**LUFY** provides an intuitive platform for simplifying complex legal documents into concise summaries and supporting multiple languages. The platform serves legal professionals, clients, and anyone seeking clarity on legal jargon by providing abstractive and extractive summaries, improving accessibility to legal content.
+```
+Browser
+  │
+  ├── GET  /              → frontend/index.html  (landing page)
+  ├── GET  /app.html      → frontend/app.html    (application UI)
+  │
+  └── FastAPI (uvicorn)
+        ├── POST /api/upload          → parse → embed → ChromaDB session
+        ├── POST /api/demo            → load sample_docs/legal_judgement.txt
+        ├── POST /api/summarize       → full text → Groq LLM → plain summary
+        ├── POST /api/risk-analysis   → full text → Groq LLM → JSON flags
+        ├── POST /api/query           → embed query → retrieve → Groq LLM answer
+        └── GET  /health              → {"status":"ok"}
 
-Users can:
-- Upload documents in PDF, TXT, DOCX formats.
-- Receive summarized content in multiple local languages.
-- Query specific sections of the document for detailed insights.
-
----
-
-## 💡 Key Features
-
-- **Abstractive & Extractive Summaries**: Generates both types of summaries for better understanding.
-- **Multi-Language Support**: Summaries are provided in languages such as Hindi, Gujarati, Marathi, and more.
-- **Document Querying**: Allows users to ask specific questions about legal documents.
-- **User-Friendly Interface**: Intuitive design to simplify the user experience.
-- **File Format Support**: Accepts PDF, TXT, DOCX files for uploading and summarization.
-
----
-
-## 🛠 Tech Stack
-
-- **Frontend**: HTML, CSS, JavaScript (index.html)
-- **Backend**: Python, Flask, PEFT (Parameter-Efficient Fine-Tuning), Hugging Face Transformers, Google Translator API
-- **Models**: Facebook's BART (Fine-tuned with legal datasets)
-- **Libraries**:
-  - `Flask`: Web framework for handling API requests.
-  - `PyPDF2`: For extracting text from PDFs.
-  - `docx`: To handle DOCX files.
-  - `googletrans`: For translating text into different languages.
-  - `peft`: For loading the fine-tuned BART model.
-  - `transformers`: For handling NLP model tokenization and summarization.
+Core pipeline
+  Document bytes
+    → PyMuPDF / python-docx / utf-8 decode
+    → clean_text + split_into_chunks
+    → sentence-transformers (all-MiniLM-L6-v2, CPU)
+    → ChromaDB in-memory collection (cosine space)
+    → Groq API (llama-3.1-8b-instant)
+    → deep-translator (Google backend) — optional
+```
 
 ---
 
-## ⚙️ Setup and Installation
+## Key Features
+
+- **Plain-language summaries** — persona-aware (tenant / employee / freelancer / general)
+- **Three-tier risk analysis** — red / yellow / green flags with clause, explanation, and advice
+- **RAG question answering** — answers grounded in retrieved document excerpts with citations
+- **16 Indian languages** — Hindi, Gujarati, Marathi, Tamil, Telugu, Bengali, Kannada, Malayalam, Punjabi, Odia, Assamese, Urdu, Sanskrit, Sindhi, Kashmiri
+- **Format support** — PDF, DOCX, TXT (up to 10 MB)
+- **No persistence** — all data lives in-memory per session; nothing is stored on disk
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | FastAPI + Uvicorn |
+| LLM | Groq API — llama-3.1-8b-instant |
+| Embeddings | sentence-transformers/all-MiniLM-L6-v2 (local CPU) |
+| Vector DB | ChromaDB in-memory |
+| PDF parsing | PyMuPDF (fitz) |
+| DOCX parsing | python-docx |
+| Translation | deep-translator (GoogleTranslator) |
+| Frontend | Vanilla HTML / CSS / JS — no build step |
+| Container | Docker (python:3.11-slim) |
+| Hosting target | Hugging Face Spaces Docker SDK (port 7860) |
+
+---
+
+## Local Development
 
 ### Prerequisites
 
-Make sure you have the following installed:
+- Python 3.11+
+- A free [Groq API key](https://console.groq.com/)
 
-- Python 3.8 or higher
-- Flask
-- Hugging Face's `transformers` and `peft`
-- Google Translator API access
+### Steps
 
-### Installation Steps
+```bash
+# 1. Clone
+git clone https://github.com/your-username/LUFY.git
+cd LUFY
 
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/your-username/LUFY.git
-   cd LUFY
-   ```
+# 2. Install dependencies
+pip install -r requirements.txt
 
-2. **Install the Required Libraries**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+# 3. Configure environment
+cp .env.example .env
+# Edit .env and set GROQ_API_KEY=your_key_here
 
-3. **Run the Application**:
-   - To start the backend Flask server, run:
-     ```bash
-     python apis.py
-     ```
-   - This will launch the backend server at `http://localhost:5000`.
+# 4. Start the server
+uvicorn app.main:app --reload --port 7860
+```
 
-4. **Access the Frontend**:
-   - Open the `index.html` file in a web browser to view the user interface for uploading files and querying summaries.
+Open `http://localhost:7860` — landing page loads.
+Open `http://localhost:7860/app.html` — application UI.
 
----
+### Environment Variables
 
-## 💻 Usage Instructions
-
-### Frontend
-
-1. **Upload Files**:
-   - Navigate to the homepage and upload your desired legal document (PDF, DOCX, or TXT).
-   
-2. **Select Language**:
-   - Choose your preferred language for the summary (Hindi, Gujarati, Marathi, etc.).
-   
-3. **Summarize**:
-   - Click the **Summarize** button to generate a concise, easy-to-understand summary of the uploaded document.
-
-4. **Query the Document**:
-   - Ask questions about specific sections or content of the document to gain better insights.
-
-### Backend
-
-- The backend runs using **Flask** APIs to handle file uploads, text summarization, translation, and querying. Once the user uploads a file or inputs a query, the backend processes it and responds with a summary or relevant document details.
+| Variable | Default | Description |
+|---|---|---|
+| `GROQ_API_KEY` | *(required)* | Groq API key |
+| `GROQ_MODEL` | `llama-3.1-8b-instant` | Groq model ID |
+| `EMBED_MODEL` | `all-MiniLM-L6-v2` | sentence-transformers model name |
+| `MAX_CHUNK_SIZE` | `800` | Max characters per document chunk |
+| `CHUNK_OVERLAP` | `150` | Overlap characters between chunks |
+| `RETRIEVAL_TOP_K` | `4` | Chunks retrieved per query |
+| `DEBUG` | `false` | Enable debug logging |
 
 ---
 
-## 🔌 API Endpoints
+## Docker
 
-### 1. **Summarize Text**
-   - **Endpoint**: `/summarizetext`
-   - **Method**: POST
-   - **Description**: Generates a summary of the provided text.
-   - **Parameters**:
-     - `text`: The text to be summarized.
-     - `language`: Target language for the summary (e.g., `hi` for Hindi, `gu` for Gujarati).
-   - **Response**: JSON object containing the summarized text in the requested language.
+```bash
+# Build (pre-bakes the embedding model weights into the image)
+docker build -t lufy-v2 .
 
-### 2. **Summarize Document**
-   - **Endpoint**: `/summarisedoc`
-   - **Method**: POST
-   - **Description**: Summarizes an uploaded document.
-   - **Parameters**:
-     - `file`: The file (PDF, DOCX, or TXT) to be summarized.
-     - `language`: Target language for the summary.
-     - `checkbox`: Boolean to check if the user selected for abstractive or abstractive summarization.
-   - **Response**: JSON object containing the summarized text.
-
-### 3. **Query Document**
-   - **Endpoint**: `/query`
-   - **Method**: POST
-   - **Description**: Responds to a query based on the content of the uploaded document.
-   - **Parameters**:
-     - `language`: Target language for the query.
-   - **Response**: JSON object with the response in the target language.
+# Run
+docker run -p 7860:7860 -e GROQ_API_KEY=your_key_here lufy-v2
+```
 
 ---
 
-## 🎨 Frontend Overview
+## API Reference
 
-The frontend is designed using **HTML** and **CSS** for simplicity, allowing users to upload documents, select languages, and perform queries in a user-friendly manner.
+| Method | Path | Body / Params | Returns |
+|---|---|---|---|
+| GET | `/health` | — | `{status, service}` |
+| POST | `/api/upload` | `file` (multipart) | `UploadResponse` |
+| POST | `/api/demo` | — | `UploadResponse` |
+| POST | `/api/summarize` | `{session_id, persona, language}` | `{summary, language}` |
+| POST | `/api/risk-analysis` | `{session_id, persona, language}` | `{red_flags, yellow_flags, green_flags}` |
+| POST | `/api/query` | `{session_id, query, persona, language}` | `{answer, sources}` |
 
-- **Homepage**: Features options for document uploads, language selection, and querying.
-- **Testimonials Section**: Showcases positive feedback from users.
-- **Contact Form**: Allows users to send feedback or inquiries.
-
----
-
-## 🛠 Backend Overview
-
-The backend is developed with **Flask**, handling the following functionalities:
-
-1. **Document Upload**: Accepts documents in various formats (PDF, DOCX, TXT).
-2. **Summarization**: Utilizes the fine-tuned BART model for generating summaries.
-3. **Translation**: Uses Google Translate API to translate summaries into multiple local languages.
-4. **Querying**: Allows users to ask specific questions about legal documents and retrieve detailed answers.
+Interactive docs: `http://localhost:7860/docs`
 
 ---
 
-## 🚀 Future Improvements
+## Project Structure
 
-- **Enhanced Document Parsing**: Improve support for complex legal document structures.
-- **Expanded Language Support**: Add more local languages to further increase accessibility.
-- **Customizable Summarization**: Allow users to select the level of summary detail (e.g., short, medium, detailed).
-- **Improved Querying**: Enhance the document querying process with more advanced NLP models.
+```
+app/
+  config.py               — pydantic-settings singleton
+  main.py                 — FastAPI factory
+  api/
+    schemas.py            — request/response models
+    routes/
+      health.py
+      document.py         — /upload, /demo
+      summarize.py        — /summarize
+      risk.py             — /risk-analysis
+      query.py            — /query (RAG)
+  core/
+    document_processor.py — PDF/DOCX/TXT parsing + chunking
+    embedder.py           — sentence-transformers wrapper
+    vector_store.py       — ChromaDB session management
+    llm_client.py         — Groq API calls
+    risk_analyzer.py      — Pydantic risk models + validation
+    translator.py         — deep-translator wrapper
+  utils/
+    text_utils.py         — clean_text, truncate, split_into_chunks
+
+frontend/
+  index.html              — landing page
+  app.html                — single-page application
+  assets/                 — CSS, JS, fonts, images (landing page)
+  static/
+    css/app.css
+    js/app.js
+
+sample_docs/              — bundled sample documents
+Dockerfile
+.env.example
+requirements.txt
+```
 
 ---
 
-## 📜 License
+## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
-
----
-
-Enjoy using **LUFY** and make your legal documents easy to understand! 😊
+MIT License — see [LICENSE](LICENSE) for details.

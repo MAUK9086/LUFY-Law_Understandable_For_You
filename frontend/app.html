@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LUFY — Law Understandable For You</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+  <!-- ── Navbar ── -->
+  <nav class="navbar">
+    <a href="/" class="navbar-brand">LUFY</a>
+    <div class="navbar-controls">
+      <select id="persona-select" title="Viewing as">
+        <option value="general">General public</option>
+        <option value="tenant">Tenant</option>
+        <option value="employee">Employee</option>
+        <option value="freelancer">Freelancer</option>
+      </select>
+      <select id="lang-select" title="Output language">
+        <option value="English">English</option>
+        <option value="Hindi">Hindi</option>
+        <option value="Gujarati">Gujarati</option>
+        <option value="Marathi">Marathi</option>
+        <option value="Tamil">Tamil</option>
+        <option value="Telugu">Telugu</option>
+        <option value="Bengali">Bengali</option>
+        <option value="Kannada">Kannada</option>
+        <option value="Malayalam">Malayalam</option>
+        <option value="Punjabi">Punjabi</option>
+        <option value="Odia">Odia</option>
+        <option value="Assamese">Assamese</option>
+        <option value="Urdu">Urdu</option>
+        <option value="Sanskrit">Sanskrit</option>
+        <option value="Sindhi">Sindhi</option>
+        <option value="Kashmiri">Kashmiri</option>
+      </select>
+    </div>
+  </nav>
+
+  <!-- ── App layout ── -->
+  <div class="app-layout">
+
+    <!-- ── Left panel ── -->
+    <aside class="left-panel">
+      <p class="panel-heading">Upload Document</p>
+
+      <div class="drop-zone" id="drop-zone">
+        <input type="file" id="file-input" accept=".pdf,.docx,.txt" tabindex="-1">
+        <span class="dz-icon">📂</span>
+        <span class="dz-label">Click or drag a legal document here</span>
+        <span class="dz-sub">PDF · DOCX · TXT — max 10 MB</span>
+      </div>
+
+      <div class="doc-info" id="doc-info">
+        <div class="doc-name" id="doc-name"></div>
+        <div class="doc-meta">
+          <span class="doc-badge" id="doc-pages"></span>
+          <span class="doc-badge" id="doc-chars"></span>
+          <span class="doc-badge" id="doc-chunks"></span>
+        </div>
+      </div>
+
+      <button class="btn btn-ghost" id="demo-btn">Try with sample document</button>
+
+      <div class="analyse-btn-wrap" id="analyse-btn-wrap">
+        <button class="btn btn-primary" id="analyse-btn">Analyse Document</button>
+      </div>
+    </aside>
+
+    <!-- ── Right panel ── -->
+    <main class="right-panel">
+
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="tab-summary">Summary</button>
+        <button class="tab-btn" data-tab="tab-risk">Risk Analysis</button>
+        <button class="tab-btn" data-tab="tab-chat">Ask Questions</button>
+      </div>
+
+      <!-- Tab panels -->
+      <div class="tab-panels">
+
+        <!-- Summary tab -->
+        <div class="tab-panel active" id="tab-summary">
+          <div id="summary-content">
+            <div class="empty-state">
+              <span class="empty-icon">📄</span>
+              <p>Upload a document and click <strong>Analyse Document</strong> to see a plain-language summary here.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Risk Analysis tab -->
+        <div class="tab-panel" id="tab-risk">
+          <div id="risk-content">
+            <div class="empty-state">
+              <span class="empty-icon">🔍</span>
+              <p>Upload a document and click <strong>Analyse Document</strong> to identify red, yellow, and green flags in the contract.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ask Questions tab -->
+        <div class="tab-panel" id="tab-chat">
+          <div class="chat-panel">
+            <div class="chat-window" id="chat-window">
+              <div class="empty-state">
+                <span class="empty-icon">💬</span>
+                <p>After analysis is complete, ask anything about your document here. Answers are grounded in the document text.</p>
+              </div>
+            </div>
+            <div class="chat-input-bar">
+              <input
+                type="text"
+                id="chat-input"
+                placeholder="Ask a question about your document…"
+                disabled
+                maxlength="1000"
+              >
+              <button class="chat-send-btn" id="chat-send-btn" disabled>Send</button>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /tab-panels -->
+    </main>
+
+  </div><!-- /app-layout -->
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
