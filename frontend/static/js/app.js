@@ -49,6 +49,11 @@ function _applyState() {
 
   fileInput.disabled = isUploading;
   demoBtn.disabled   = isUploading || isAnalysing;
+  demoBtn.innerHTML  = isUploading
+    ? '<span class="spinner spinner-dark"></span>Loading…'
+    : "Try with sample document";
+
+  dropZone.classList.toggle("uploading", isUploading);
 
   analyseWrap.classList.toggle("visible", isUploaded);
   analyseBtn.disabled = isAnalysing || !isUploaded || isReady;

@@ -124,6 +124,13 @@ body {
   background: rgba(244, 129, 63, 0.04);
 }
 
+.drop-zone.uploading {
+  border-color: var(--primary);
+  background: rgba(244, 129, 63, 0.06);
+  cursor: wait;
+  pointer-events: none;
+}
+
 .drop-zone input[type="file"] {
   position: absolute;
   inset: 0;
