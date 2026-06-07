@@ -180,7 +180,7 @@ async function runAnalysis() {
 
   if (sumRes.status === "fulfilled" && sumRes.value.ok) {
     const data = await sumRes.value.json();
-    summaryContent.innerHTML = `<div class="summary-card">${_escapeHtml(data.summary)}</div>`;
+    summaryContent.innerHTML = `<div class="summary-card">${_renderMarkdown(data.summary)}</div>`;
   } else {
     summaryContent.innerHTML = _emptyState("⚠️", "Summarisation failed. Check your API key.");
   }
@@ -209,12 +209,17 @@ function _renderRiskDashboard(data) {
     const flags = data[key] || [];
     const cards = flags.length
       ? flags.map((f) => `
-          <div class="flag-card ${cls}">
-            <div class="flag-clause">${_escapeHtml(f.clause)}</div>
-            <div class="flag-explanation">${_escapeHtml(f.explanation)}</div>
-            <div class="flag-advice">${_escapeHtml(f.advice)}</div>
-          </div>`).join("")
-      : `<p style="color:var(--muted);font-size:.85rem">None identified.</p>`;
+          <details class="flag-card ${cls}">
+            <summary class="flag-header">
+              <span class="flag-clause">${_escapeHtml(f.clause)}</span>
+              <span class="flag-chevron">▸</span>
+            </summary>
+            <div class="flag-body">
+              <p class="flag-explanation">${_escapeHtml(f.explanation)}</p>
+              <div class="flag-advice">${_escapeHtml(f.advice)}</div>
+            </div>
+          </details>`).join("")
+      : `<p class="no-flags">None identified.</p>`;
 
     return `
       <div class="risk-section">
@@ -296,8 +301,7 @@ function _appendLoadingBubble() {
 
 function _appendBotResponse(answer, sources) {
   const wrap = document.createElement("div");
-  wrap.style.alignSelf = "flex-start";
-  wrap.style.maxWidth = "75%";
+  wrap.className = "bot-response-wrap";
 
   const bubble = document.createElement("div");
   bubble.className = "chat-bubble bot";
@@ -305,29 +309,33 @@ function _appendBotResponse(answer, sources) {
   wrap.appendChild(bubble);
 
   if (sources && sources.length) {
+    const citContainer = document.createElement("div");
+    citContainer.className = "citations-container";
+
     const toggle = document.createElement("button");
     toggle.className = "citation-toggle";
-    toggle.textContent = `Show ${sources.length} source excerpt${sources.length !== 1 ? "s" : ""}`;
+    toggle.innerHTML = `<span class="cit-icon">📎</span> ${sources.length} document source${sources.length !== 1 ? "s" : ""} <span class="cit-arrow open">▾</span>`;
 
     const citList = document.createElement("div");
-    citList.className = "citations";
+    citList.className = "citations open";
+
     sources.forEach((src, i) => {
       const block = document.createElement("div");
       block.className = "citation-block";
-      block.innerHTML = `<strong>Source ${i + 1}</strong><br>${_escapeHtml(src)}`;
+      block.innerHTML = `<span class="cit-label">Source ${i + 1}</span>${_escapeHtml(src)}`;
       citList.appendChild(block);
     });
 
     toggle.addEventListener("click", () => {
-      citList.classList.toggle("open");
-      const open = citList.classList.contains("open");
-      toggle.textContent = open
-        ? `Hide ${sources.length} source excerpt${sources.length !== 1 ? "s" : ""}`
-        : `Show ${sources.length} source excerpt${sources.length !== 1 ? "s" : ""}`;
+      const isOpen = citList.classList.toggle("open");
+      const arrow = toggle.querySelector(".cit-arrow");
+      arrow.textContent = isOpen ? "▾" : "▸";
+      arrow.classList.toggle("open", isOpen);
     });
 
-    wrap.appendChild(toggle);
-    wrap.appendChild(citList);
+    citContainer.appendChild(toggle);
+    citContainer.appendChild(citList);
+    wrap.appendChild(citContainer);
   }
 
   chatWindow.appendChild(wrap);
@@ -335,6 +343,49 @@ function _appendBotResponse(answer, sources) {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * Convert the structured summary text (with **bold** markers and • bullets)
+ * into styled HTML. Handles the five-section format returned by the LLM.
+ */
+function _renderMarkdown(raw) {
+  const lines = raw.split("\n");
+  let html = "";
+  let inList = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (inList) { html += "</ul>"; inList = false; }
+      continue;
+    }
+
+    // Section header: **Text:** at the start of a line
+    const headerMatch = trimmed.match(/^\*\*(.+?)\*\*:?\s*(.*)$/);
+    if (headerMatch && !trimmed.startsWith("•")) {
+      if (inList) { html += "</ul>"; inList = false; }
+      const title = _escapeHtml(headerMatch[1]);
+      const rest  = headerMatch[2] ? " " + _escapeHtml(headerMatch[2]) : "";
+      html += `<div class="sum-section"><span class="sum-label">${title}</span>${rest}</div>`;
+      continue;
+    }
+
+    // Bullet point
+    if (trimmed.startsWith("•") || trimmed.startsWith("-")) {
+      if (!inList) { html += "<ul class='sum-list'>"; inList = true; }
+      const content = _escapeHtml(trimmed.replace(/^[•\-]\s*/, ""));
+      html += `<li>${content}</li>`;
+      continue;
+    }
+
+    // Plain text continuation
+    if (inList) { html += "</ul>"; inList = false; }
+    html += `<p>${_escapeHtml(trimmed)}</p>`;
+  }
+
+  if (inList) html += "</ul>";
+  return html;
+}
 
 function _escapeHtml(str) {
   return String(str)

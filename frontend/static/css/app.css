@@ -320,8 +320,49 @@ body {
   padding: 24px;
   line-height: 1.75;
   font-size: 0.9rem;
-  white-space: pre-wrap;
   box-shadow: var(--shadow);
+}
+
+.summary-card p { margin-bottom: 8px; }
+
+.sum-section {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sum-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+.sum-label {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--primary);
+  margin-bottom: 4px;
+  margin-right: 6px;
+}
+
+.sum-list {
+  margin: 8px 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.sum-list li {
+  position: relative;
+  padding-left: 14px;
+  margin-bottom: 6px;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.sum-list li::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: var(--primary);
+  font-weight: 700;
 }
 
 /* ── Risk dashboard ── */
@@ -353,31 +394,65 @@ body {
 .risk-badge.yellow { background: var(--yellow); }
 .risk-badge.green { background: var(--green); color: #1a5e38; }
 
+/* Collapsible <details> flag cards */
 .flag-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-left: 4px solid;
   border-radius: var(--radius);
-  padding: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   box-shadow: var(--shadow);
+  overflow: hidden;
 }
 
-.flag-card.red { border-left-color: var(--red); }
+.flag-card.red    { border-left-color: var(--red); }
 .flag-card.yellow { border-left-color: var(--yellow); }
-.flag-card.green { border-left-color: var(--green); }
+.flag-card.green  { border-left-color: var(--green); }
+
+/* Hide the default triangle */
+.flag-card summary { list-style: none; }
+.flag-card summary::-webkit-details-marker { display: none; }
+
+.flag-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 13px 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.flag-header:hover { background: var(--bg); }
 
 .flag-clause {
   font-weight: 600;
   font-size: 0.875rem;
-  margin-bottom: 6px;
+  flex: 1;
+}
+
+.flag-chevron {
+  font-size: 0.75rem;
+  color: var(--muted);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.flag-card[open] .flag-chevron {
+  transform: rotate(90deg);
+}
+
+.flag-body {
+  padding: 0 16px 14px;
+  border-top: 1px solid var(--border);
 }
 
 .flag-explanation {
   font-size: 0.84rem;
   color: var(--muted);
-  margin-bottom: 10px;
-  line-height: 1.6;
+  margin: 10px 0;
+  line-height: 1.65;
 }
 
 .flag-advice {
@@ -390,6 +465,40 @@ body {
 
 .flag-advice::before {
   content: '💡 ';
+}
+
+.no-flags {
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 4px 0;
+}
+
+/* ── RAG header ── */
+.rag-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 24px;
+  background: rgba(244, 129, 63, 0.06);
+  border-bottom: 1px solid rgba(244, 129, 63, 0.2);
+  flex-shrink: 0;
+}
+
+.rag-badge {
+  background: var(--primary);
+  color: #fff;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.rag-desc {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 /* ── Chat panel ── */
@@ -432,37 +541,68 @@ body {
   box-shadow: var(--shadow);
 }
 
+.bot-response-wrap {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+  max-width: 80%;
+  gap: 6px;
+}
+
+.citations-container {
+  margin-top: 2px;
+}
+
 .citation-toggle {
-  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   background: none;
-  border: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
   font-family: inherit;
   font-size: 0.78rem;
   color: var(--muted);
   cursor: pointer;
-  padding: 0;
-  text-decoration: underline;
+  padding: 4px 10px;
+  transition: border-color 0.15s, color 0.15s;
 }
 
-.citation-toggle:hover { color: var(--primary); }
+.citation-toggle:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.cit-icon { font-size: 0.85rem; }
+.cit-arrow { font-size: 0.7rem; transition: color 0.15s; }
 
 .citations {
-  margin-top: 8px;
+  margin-top: 6px;
   display: none;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .citations.open { display: flex; }
 
 .citation-block {
   background: var(--bg);
-  border-left: 3px solid var(--border);
+  border-left: 3px solid var(--primary);
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 0.78rem;
-  color: var(--muted);
-  line-height: 1.5;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.cit-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary);
+  margin-bottom: 4px;
 }
 
 .loading-bubble {

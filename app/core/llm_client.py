@@ -46,7 +46,10 @@ def _call_groq(messages: list[dict]) -> str:
 
 
 def summarise_document(text: str, persona: str, language: str) -> str:
-    """Produce a plain-language summary of a legal document.
+    """Produce a structured plain-language summary of a legal document.
+
+    The response is formatted into five labelled sections so the frontend
+    can render it with visual hierarchy.
 
     Args:
         text: Full document text (pre-truncated to fit the context budget).
@@ -54,18 +57,26 @@ def summarise_document(text: str, persona: str, language: str) -> str:
         language: Target language display name (e.g. "English", "Hindi").
 
     Returns:
-        A plain-language summary string.
+        A structured summary string with bold section headers.
     """
     persona_desc = _PERSONA_DESCRIPTIONS.get(persona, _PERSONA_DESCRIPTIONS["general"])
     system_prompt = (
         f"You are a friendly legal assistant helping {persona_desc}. "
-        "Summarise the following legal document in plain language. "
-        "Avoid jargon; if you must use a legal term, explain it in parentheses. "
-        f"Write your response in {language}."
+        "Analyse the following legal document and provide a structured summary "
+        "using EXACTLY these five sections, each on its own line:\n\n"
+        "**Document Type:** (one line — what kind of document this is)\n"
+        "**Key Parties:** (who is involved and their roles)\n"
+        "**Main Points:**\n"
+        "• (bullet point for each important clause or finding — 3 to 6 bullets)\n"
+        "**Key Figures:** (important dates, deadlines, monetary amounts — write 'None' if absent)\n"
+        "**What This Means For You:** (2–3 sentences of practical plain-English takeaway)\n\n"
+        "Rules: avoid legal jargon; if you must use a legal term, explain it in parentheses. "
+        "Do not add any sections beyond the five listed above. "
+        f"Write every section in {language}."
     )
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Please summarise this document:\n\n{text}"},
+        {"role": "user", "content": f"Summarise this document:\n\n{text}"},
     ]
     return _call_groq(messages)
 
@@ -150,11 +161,14 @@ def answer_query(
         for i, chunk in enumerate(context_chunks)
     )
     system_prompt = (
-        f"You are a legal assistant helping {persona_desc}. "
-        "Answer the question using ONLY the document excerpts provided below. "
-        "If the answer is not found in the excerpts, say so explicitly. "
-        "At the end of your answer, list the source numbers you used (e.g. Sources: 1, 3). "
-        f"Write your response in {language}."
+        f"You are a precise legal assistant helping {persona_desc}. "
+        "Answer ONLY from the numbered document excerpts provided. "
+        "Be direct and specific — give a clear, concise answer in 1–4 sentences. "
+        "When the answer is in the text, quote the exact wording briefly to support your answer. "
+        "If the answer is genuinely not in the excerpts, reply with exactly: "
+        "'This specific information is not covered in the retrieved sections of the document.' "
+        "Never guess, invent details, or use knowledge outside the excerpts. "
+        f"Reply in {language}."
     )
     messages = [
         {"role": "system", "content": system_prompt},
