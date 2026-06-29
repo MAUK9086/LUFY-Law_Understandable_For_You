@@ -8,6 +8,7 @@ from app.api.schemas import QueryRequest, QueryResponse
 from app.config import settings
 from app.core.embedder import embed_query
 from app.core.llm_client import answer_query
+from app.core.reranker import rerank
 from app.core.translator import translate
 from app.core.vector_store import retrieve, session_exists
 
@@ -39,7 +40,10 @@ async def query_document(request: QueryRequest) -> QueryResponse:
 
     try:
         query_vector = embed_query(request.query)
-        chunks = retrieve(request.session_id, query_vector, settings.retrieval_top_k)
+        candidates = retrieve(
+            request.session_id, query_vector, request.query, settings.rerank_top_n
+        )
+        chunks = rerank(request.query, candidates, settings.retrieval_top_k)
     except Exception as exc:
         logger.exception("Retrieval failed for session '%s'", request.session_id)
         raise HTTPException(status_code=500, detail="Document retrieval failed.") from exc

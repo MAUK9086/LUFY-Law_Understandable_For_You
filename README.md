@@ -80,6 +80,8 @@ A 20-page contract has roughly 30,000–50,000 characters. At GPT-4-class contex
 
 Documents are split on paragraph boundaries first (`\n\n`). Paragraphs that exceed the 800-character window are further split on sentence boundaries (`. `) rather than character position. This preserves semantic units: a clause is not cut mid-sentence. Each chunk carries 150 characters of overlap from the preceding chunk, preventing the retriever from missing an answer that spans two adjacent sections.
 
+Chunking is also **structure-aware**: while walking paragraphs, lines that look like legal section headers — ALL-CAPS labels, numbered clauses (`1.`, `2.3`), or short colon-terminated labels — are detected and recorded as the "current section" (`_is_section_header` in `text_utils.py`). Each chunk is tagged with the section it belongs to, and that label is stored as ChromaDB metadata. The retriever later uses it to boost chunks whose section header overlaps the query terms.
+
 ### Embedding Model Choice
 
 `all-MiniLM-L6-v2` produces 384-dimensional sentence embeddings. It is small enough to run on CPU without perceptible latency (the model is ~23 MB after quantization), semantically accurate for short paragraphs, and has a permissive Apache 2.0 licence. The model is loaded once at server startup via `asynccontextmanager` + `run_in_executor` and cached with `@lru_cache`. Subsequent embedding calls add no model-loading overhead.
@@ -92,7 +94,13 @@ ChromaDB runs fully in-process with no daemon or network dependency. For a state
 
 ### Retrieval and Answer Grounding
 
-For each query, the system retrieves the top 4 chunks ranked by cosine similarity. These are injected into the prompt as numbered excerpts:
+Retrieval is a three-stage pipeline rather than a single cosine-similarity lookup:
+
+1. **Hybrid first-stage retrieval.** Each query is run against two retrievers in parallel — ChromaDB dense (cosine) similarity and a BM25 lexical index built over the same chunks. Each returns up to 20 candidates.
+2. **Reciprocal Rank Fusion (RRF).** The two ranked lists are merged with RRF (`score = Σ 1 / (60 + rank)`), so a chunk that ranks highly in *either* retriever surfaces, and chunks ranked highly in *both* win. Chunks whose section header shares keywords with the query receive a small additional boost.
+3. **Cross-encoder reranking.** The fused top-10 candidates are rescored by a `cross-encoder/ms-marco-MiniLM-L-6-v2` cross-encoder, which jointly encodes each `(query, chunk)` pair for a much sharper relevance estimate than the first-stage bi-encoder. The reranked top-`RETRIEVAL_TOP_K` (4) chunks are what the LLM sees.
+
+These are injected into the prompt as numbered excerpts:
 
 ```
 [Source 1] ... text ...
@@ -109,6 +117,20 @@ Legal documents have a strong sectional structure. Clauses about rent are groupe
 
 The alternative — a sliding window over raw character positions — produces chunks that can split sentences and mix clauses from unrelated sections, degrading both retrieval precision and the coherence of the LLM's answer.
 
+### Why Naive RAG Fails on Legal Documents — and What I Did About It
+
+A first cut of this system used the textbook RAG recipe: paragraph chunks, dense embeddings, top-4 cosine retrieval, and "join the chunks back together" for whole-document tasks. On legal text, each of those defaults has a specific failure mode. Here is what broke and the concrete change that fixed it.
+
+**1. Reconstructing context from overlapping chunks wastes the budget.** Summarisation and risk analysis need the *whole* document, so the original code did `"\n\n".join(chunks)`. But chunks carry 150 characters of overlap each, so a 10,000-character document was reassembled into 12,000+ characters of partially duplicated text — the LLM paid attention budget to the same sentences twice, and the overlap seams read as noise. The fix is trivial once you see it: the cleaned pre-chunk text already exists (`ParsedDocument.raw_text`), so the session now stores it directly and `get_full_text()` returns the original, not a reassembly. (`vector_store.py`)
+
+**2. Dense-only retrieval misses exact legal terms.** Bi-encoder cosine similarity is excellent at *topical* matching but blurs *lexical* precision. A question like "what happens if I break the lease early?" should land on the clause containing "early termination" — but a 384-dim sentence embedding scores a semantically adjacent passage about "notice periods" almost as highly. Legal language is full of terms of art ("indemnify", "severability", a specific defined term) where an exact token match is the strongest possible signal. The fix is a **BM25 lexical index fused with the dense retriever via Reciprocal Rank Fusion** — BM25 rewards the exact-term hit, dense rewards the paraphrase, and RRF combines them without needing their raw scores to be comparable. (`vector_store.py`)
+
+**3. Paragraph chunking discards document structure.** Splitting on `\n\n` treats a two-line "DEFINITIONS" header and a substantive indemnity clause as equal citizens. But a legal document's section structure *is* signal: a query about termination should prefer chunks under the "TERMINATION" heading. So chunking now **detects section headers and tags every chunk with its section**, stored as ChromaDB metadata, and retrieval applies a small boost when the query terms overlap a chunk's section header. (`text_utils.py`, `vector_store.py`)
+
+**4. First-stage retrieval is recall-oriented, not precision-oriented.** HNSW + BM25 are fast approximate retrievers; their job is to *not miss* the answer, not to rank it first. Handing the top-4 of a fuzzy first stage straight to the LLM means the genuinely best clause is often at rank 3 or 4, where "lost in the middle" degrades the answer. The fix is a **cross-encoder reranker**: retrieve a wider net (top-10 fused), then rescore each `(query, chunk)` pair with a model that reads them *together* rather than comparing pre-computed vectors. This is the single change that most improves answer quality, and it is ~15 lines because the bi-encoder infrastructure already exists. (`reranker.py`)
+
+The throughline: naive RAG optimises for the average document, but legal text rewards exact terms, respects strict structure, and punishes wasted context. Each stage above trades a little latency for precision where it matters.
+
 ---
 
 ## Tech Stack
@@ -119,6 +141,8 @@ The alternative — a sliding window over raw character positions — produces c
 | ASGI server | Uvicorn | Standard companion for FastAPI; supports lifespan events needed for model pre-warming |
 | LLM | Groq API / llama-3.1-8b-instant | Sub-second inference at no cost (free tier); llama-3.1-8b follows structured prompts reliably; avoids running a local LLM that would require GPU |
 | Embeddings | sentence-transformers all-MiniLM-L6-v2 | CPU-only, 23 MB, Apache-2.0; 384-dim vectors are accurate for paragraph-length legal text |
+| Reranker | sentence-transformers cross-encoder ms-marco-MiniLM-L-6-v2 | CPU-friendly cross-encoder (~80 MB); jointly encodes (query, chunk) for a precision second stage over the fused candidates |
+| Lexical retrieval | rank-bm25 (BM25Okapi) | In-process BM25 index fused with dense retrieval via RRF; catches exact legal terms that embeddings blur |
 | Vector store | ChromaDB in-memory | Zero-config, in-process, per-session collections; no daemon required; HNSW index with cosine space |
 | PDF parsing | PyMuPDF (fitz) | Fastest Python PDF library; handles scanned-layout PDFs better than pdfminer; BSD licence |
 | DOCX parsing | python-docx | De facto standard; extracts paragraph structure rather than raw text |
@@ -147,12 +171,15 @@ app/
   core/
     document_processor.py — PDF/DOCX/TXT parsing, ParsedDocument dataclass
     embedder.py           — SentenceTransformer singleton, embed_chunks, embed_query
-    vector_store.py       — ChromaDB session lifecycle, retrieve(), get_full_text()
+    reranker.py           — CrossEncoder singleton, rerank() precision stage
+    vector_store.py       — ChromaDB + BM25 sessions, hybrid retrieve() w/ RRF, get_full_text()
     llm_client.py         — Groq API calls, structured prompts per endpoint
     risk_analyzer.py      — RiskFlag/RiskReport Pydantic models, parse_risk_response()
     translator.py         — deep-translator wrapper, paragraph-chunked for long texts
   utils/
-    text_utils.py         — clean_text(), truncate_to_token_budget(), split_into_chunks()
+    text_utils.py         — clean_text(), truncate_to_token_budget(), structure-aware chunking
+
+tests/                    — pytest suite (text utils, risk parsing, RRF, vector store)
 
 frontend/
   index.html              — landing page
@@ -183,7 +210,7 @@ cp .env.example .env
 uvicorn app.main:app --reload --port 7860
 ```
 
-On first start, the embedding model is downloaded from HuggingFace Hub (~23 MB) and cached locally. Subsequent starts load from cache in under one second. The server pre-warms the model in the lifespan hook so the first user request is not blocked by model loading.
+On first start, the embedding model (~23 MB) and the cross-encoder reranker (~80 MB) are downloaded from HuggingFace Hub and cached locally. Subsequent starts load from cache in under one second. The server pre-warms both models in the lifespan hook so the first user request is not blocked by model loading.
 
 - Landing page: `http://localhost:7860`
 - Application: `http://localhost:7860/app.html`
@@ -199,9 +226,11 @@ On first start, the embedding model is downloaded from HuggingFace Hub (~23 MB) 
 | `GROQ_API_KEY` | required | Groq API key from console.groq.com |
 | `GROQ_MODEL` | `llama-3.1-8b-instant` | Groq model identifier |
 | `EMBED_MODEL` | `all-MiniLM-L6-v2` | sentence-transformers model name |
+| `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | cross-encoder reranker model name |
 | `MAX_CHUNK_SIZE` | `800` | Maximum characters per document chunk |
 | `CHUNK_OVERLAP` | `150` | Character overlap between adjacent chunks |
-| `RETRIEVAL_TOP_K` | `4` | Number of chunks retrieved per query |
+| `RERANK_TOP_N` | `10` | Candidates passed from hybrid retrieval into the reranker |
+| `RETRIEVAL_TOP_K` | `4` | Final chunks kept after reranking and sent to the LLM |
 | `DEBUG` | `false` | Enable debug-level logging |
 
 ---

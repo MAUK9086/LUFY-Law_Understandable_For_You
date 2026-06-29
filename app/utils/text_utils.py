@@ -3,6 +3,34 @@
 import re
 import unicodedata
 
+# A line is treated as a section header when it is short and looks like a
+# heading: ALL-CAPS words, a numbered clause (e.g. "1." / "2.3 "), or a short
+# label ending in a colon. Used to give the retriever document-structure signal.
+_MAX_HEADER_LEN = 60
+_NUMBERED_HEADER = re.compile(r"^\s*\d+(?:\.\d+)*\.?\s+\S")
+
+
+def _is_section_header(line: str) -> bool:
+    """Return True if a line looks like a legal-document section header.
+
+    Args:
+        line: A single already-stripped line of text.
+
+    Returns:
+        True if the line is short and matches a heading pattern (ALL-CAPS,
+        numbered clause, or a short colon-terminated label).
+    """
+    if not line or len(line) > _MAX_HEADER_LEN:
+        return False
+    letters = [c for c in line if c.isalpha()]
+    if letters and all(c.isupper() for c in letters):
+        return True
+    if _NUMBERED_HEADER.match(line):
+        return True
+    if line.endswith(":") and len(line.split()) <= 8:
+        return True
+    return False
+
 
 def clean_text(raw: str) -> str:
     """Normalise and clean raw extracted text.
@@ -44,11 +72,8 @@ def truncate_to_token_budget(text: str, max_chars: int) -> str:
 def split_into_chunks(text: str, chunk_size: int, overlap: int) -> list[str]:
     """Split text into overlapping chunks while respecting paragraph boundaries.
 
-    Paragraphs (separated by blank lines) are accumulated greedily until the
-    running length would exceed *chunk_size*. When a single paragraph is itself
-    longer than *chunk_size* it is split further on sentence boundaries
-    (``". "`` delimiter). The last *overlap* characters of each chunk are
-    prepended to the next chunk to preserve context across boundaries.
+    Thin wrapper around :func:`split_into_chunks_with_sections` that discards
+    the per-chunk section labels. See that function for the chunking algorithm.
 
     Args:
         text: Cleaned input text.
@@ -59,39 +84,79 @@ def split_into_chunks(text: str, chunk_size: int, overlap: int) -> list[str]:
     Returns:
         A list of non-empty text chunks.
     """
+    chunks, _sections = split_into_chunks_with_sections(text, chunk_size, overlap)
+    return chunks
+
+
+def split_into_chunks_with_sections(
+    text: str, chunk_size: int, overlap: int
+) -> tuple[list[str], list[str]]:
+    """Split text into overlapping chunks and tag each with its section header.
+
+    Paragraphs (separated by blank lines) are accumulated greedily until the
+    running length would exceed *chunk_size*. When a single paragraph is itself
+    longer than *chunk_size* it is split further on sentence boundaries
+    (``". "`` delimiter). The last *overlap* characters of each chunk are
+    prepended to the next chunk to preserve context across boundaries.
+
+    While walking paragraphs, lines that look like legal section headers (see
+    :func:`_is_section_header`) update the "current section"; each emitted chunk
+    is labelled with the section that was active when it began. This gives the
+    retriever a document-structure signal it can use to boost on-topic chunks.
+
+    Args:
+        text: Cleaned input text.
+        chunk_size: Target maximum length of each chunk in characters.
+        overlap: Number of characters carried over from the end of one chunk
+            to the start of the next.
+
+    Returns:
+        A tuple ``(chunks, sections)`` of equal length, where ``sections[i]`` is
+        the section header for ``chunks[i]`` ("" if none was seen yet).
+    """
     paragraphs: list[str] = [p.strip() for p in text.split("\n\n") if p.strip()]
 
-    # Expand paragraphs that exceed chunk_size into sentence-level pieces.
-    expanded: list[str] = []
+    # Expand paragraphs into pieces, carrying the active section header.
+    # A piece is (text, section).
+    expanded: list[tuple[str, str]] = []
+    current_section = ""
     for para in paragraphs:
+        if _is_section_header(para):
+            current_section = para.rstrip(":").strip()
         if len(para) <= chunk_size:
-            expanded.append(para)
+            expanded.append((para, current_section))
         else:
             sentences = re.split(r"(?<=[.!?])\s+", para)
             buf = ""
             for sent in sentences:
                 if buf and len(buf) + 1 + len(sent) > chunk_size:
-                    expanded.append(buf.strip())
+                    expanded.append((buf.strip(), current_section))
                     buf = sent
                 else:
                     buf = (buf + " " + sent).strip() if buf else sent
             if buf:
-                expanded.append(buf.strip())
+                expanded.append((buf.strip(), current_section))
 
     chunks: list[str] = []
+    sections: list[str] = []
     current = ""
-    carry = ""
+    current_chunk_section = ""
 
-    for piece in expanded:
-        candidate = (carry + "\n\n" + piece).strip() if carry else piece
+    for piece, section in expanded:
         if current and len(current) + 2 + len(piece) > chunk_size:
             chunks.append(current.strip())
+            sections.append(current_chunk_section)
             carry = current[-overlap:] if overlap else ""
             current = (carry + "\n\n" + piece).strip() if carry else piece
+            current_chunk_section = section
         else:
+            if not current:
+                current_chunk_section = section
             current = (current + "\n\n" + piece).strip() if current else piece
 
     if current.strip():
         chunks.append(current.strip())
+        sections.append(current_chunk_section)
 
-    return [c for c in chunks if c]
+    paired = [(c, s) for c, s in zip(chunks, sections) if c]
+    return [c for c, _ in paired], [s for _, s in paired]

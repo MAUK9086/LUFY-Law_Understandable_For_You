@@ -8,7 +8,7 @@ import fitz  # PyMuPDF
 from docx import Document as DocxDocument
 
 from app.config import settings
-from app.utils.text_utils import clean_text, split_into_chunks
+from app.utils.text_utils import clean_text, split_into_chunks_with_sections
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,7 @@ class ParsedDocument:
         filename: Original uploaded filename.
         raw_text: Cleaned full text extracted from the document.
         chunks: List of overlapping text chunks ready for embedding.
+        sections: Section header for each chunk, aligned 1:1 with chunks.
         page_count: Number of pages (PDF) or 1 for DOCX/TXT.
         char_count: Total character count of raw_text.
     """
@@ -28,6 +29,7 @@ class ParsedDocument:
     filename: str
     raw_text: str
     chunks: list[str]
+    sections: list[str]
     page_count: int
     char_count: int
 
@@ -111,13 +113,16 @@ def parse_document(file_bytes: bytes, filename: str) -> ParsedDocument:
     if not cleaned:
         raise ValueError(f"No text could be extracted from '{filename}'.")
 
-    chunks = split_into_chunks(cleaned, settings.max_chunk_size, settings.chunk_overlap)
+    chunks, sections = split_into_chunks_with_sections(
+        cleaned, settings.max_chunk_size, settings.chunk_overlap
+    )
     logger.info("Document '%s' → %d chunks", filename, len(chunks))
 
     return ParsedDocument(
         filename=filename,
         raw_text=cleaned,
         chunks=chunks,
+        sections=sections,
         page_count=page_count,
         char_count=len(cleaned),
     )
