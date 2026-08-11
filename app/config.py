@@ -15,8 +15,10 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "llama-3.1-8b-instant"
     embed_model: str = "all-MiniLM-L6-v2"
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     max_chunk_size: int = 800
     chunk_overlap: int = 150
+    rerank_top_n: int = 10
     retrieval_top_k: int = 4
     app_title: str = "LUFY — Law Understandable For You"
     debug: bool = False

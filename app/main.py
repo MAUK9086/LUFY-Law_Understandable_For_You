@@ -34,13 +34,19 @@ async def _lifespan(application: FastAPI):
         Control back to FastAPI after startup is complete.
     """
     loop = asyncio.get_event_loop()
-    logger.info("Pre-warming embedding model at startup…")
+    logger.info("Pre-warming embedding and reranker models at startup…")
     try:
         from app.core.embedder import get_embedder
         await loop.run_in_executor(None, get_embedder)
         logger.info("Embedding model ready.")
     except Exception as exc:
         logger.warning("Embedder pre-warm failed (will retry on first request): %s", exc)
+    try:
+        from app.core.reranker import get_reranker
+        await loop.run_in_executor(None, get_reranker)
+        logger.info("Reranker model ready.")
+    except Exception as exc:
+        logger.warning("Reranker pre-warm failed (will retry on first request): %s", exc)
     yield
 
 

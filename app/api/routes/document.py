@@ -44,7 +44,9 @@ def _process_bytes(file_bytes: bytes, filename: str) -> UploadResponse:
 
     try:
         embeddings = embed_chunks(parsed.chunks)
-        session_id = create_session(parsed.chunks, embeddings)
+        session_id = create_session(
+            parsed.chunks, embeddings, parsed.raw_text, parsed.sections
+        )
     except Exception as exc:
         logger.exception("Embedding/indexing failed for '%s'", filename)
         raise HTTPException(status_code=500, detail="Document indexing failed.") from exc
