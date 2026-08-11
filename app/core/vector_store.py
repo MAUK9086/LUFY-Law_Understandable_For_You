@@ -236,6 +236,26 @@ def get_full_text(session_id: str) -> str:
     return _sessions[session_id].original_text
 
 
+def get_chunks(session_id: str) -> list[str]:
+    """Return the ordered, non-overlapping-purpose text chunks for a session.
+
+    Used by whole-document tasks (summarisation, risk analysis) that need to
+    process a document too long for a single LLM call in map-reduce batches,
+    as an alternative to truncating and silently dropping the tail of the
+    document.
+
+    Args:
+        session_id: Session identifier returned by create_session.
+
+    Returns:
+        The list of text chunks in original document order.
+
+    Raises:
+        KeyError: If the session_id does not exist.
+    """
+    return _sessions[session_id].chunks
+
+
 def session_exists(session_id: str) -> bool:
     """Check whether a session is currently active.
 

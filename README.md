@@ -41,8 +41,8 @@ Browser (Vanilla JS SPA)
         |
         |-- POST /api/upload          document bytes -> parse -> embed -> ChromaDB
         |-- POST /api/demo            load sample_docs/ -> same pipeline
-        |-- POST /api/summarize       full text -> Groq LLM -> structured summary
-        |-- POST /api/risk-analysis   full text -> Groq LLM -> JSON risk flags
+        |-- POST /api/summarize       full text (single-shot or map-reduce) -> Groq LLM -> structured summary
+        |-- POST /api/risk-analysis   full text (single-shot or map-reduce) -> Groq LLM -> JSON risk flags
         |-- POST /api/query           embed query -> retrieve -> Groq LLM -> answer
         +-- GET  /health              service liveness check
 
@@ -129,7 +129,11 @@ A first cut of this system used the textbook RAG recipe: paragraph chunks, dense
 
 **4. First-stage retrieval is recall-oriented, not precision-oriented.** HNSW + BM25 are fast approximate retrievers; their job is to *not miss* the answer, not to rank it first. Handing the top-4 of a fuzzy first stage straight to the LLM means the genuinely best clause is often at rank 3 or 4, where "lost in the middle" degrades the answer. The fix is a **cross-encoder reranker**: retrieve a wider net (top-10 fused), then rescore each `(query, chunk)` pair with a model that reads them *together* rather than comparing pre-computed vectors. This is the single change that most improves answer quality, and it is ~15 lines because the bi-encoder infrastructure already exists. (`reranker.py`)
 
-The throughline: naive RAG optimises for the average document, but legal text rewards exact terms, respects strict structure, and punishes wasted context. Each stage above trades a little latency for precision where it matters.
+**5. Retrieval only covered the Q&A feature — summarisation and risk analysis were silently truncating long documents at a budget far below what the model can actually handle.** RAG (retrieval + reranking) only applies to `/api/query`, where there's a query to retrieve against. Summarisation and risk analysis need the *whole* document, not the top-k passages for a question — so they were sending the full cleaned text to the LLM in one call, hard-truncated at a fixed character budget (originally 12,000 / 10,000 chars). On a genuinely long contract, a clause past that budget was simply never seen by the model — the exact failure mode this system exists to prevent, just relocated from "buried in a huge prompt" to "cut off entirely." The first instinct was to reach for map-reduce everywhere, but checking `llama-3.1-8b-instant`'s actual context window first (128K tokens) showed the original budget was using roughly 2% of what the model can take — so the real fix has two parts: raise the single-shot budget to something actually sized to the model (60,000 / 50,000 chars — still well under the context window, but comfortably above this repo's own README estimate of a 20-page contract at 30,000–50,000 chars), and keep **map-reduce as a fallback** for the rare document that's still too long even at that budget, not the default path. When the fallback does trigger: documents are split into budget-sized batches (`group_chunks_for_budget`), each batch is independently summarised into terse notes (or risk-analysed with the same JSON contract) in a "map" pass — run concurrently, bounded by a semaphore (`_gather_bounded`, capped at `MAP_REDUCE_MAX_CONCURRENCY`) to stay under Groq's free-tier rate limit rather than firing every batch at once, with retry/backoff on 429s (`_call_groq_async`) since concurrent calls are the case actually likely to hit that limit. For summarisation, the concatenated notes are run through the normal five-section prompt as a "reduce" pass; for risk analysis, the per-batch flag lists are merged and de-duplicated by normalised clause text (batches overlap slightly, so a clause can otherwise surface twice) — no reduce LLM call needed since flags are discrete items, not prose. (`llm_client.py`: `summarise_document_long`, `analyse_risks_long`)
+
+**A related gap this did *not* fix:** every Groq call in the app — including the ordinary single-shot summarize/risk/query calls, not just the map-reduce fallback — still runs through the synchronous `Groq` client with no `run_in_executor`, so it blocks the FastAPI event loop for the duration of the call. Under concurrent users this caps throughput regardless of map-reduce. Fixing it properly means moving the whole app onto `AsyncGroq`, which is a larger, separate change from the long-document fix above.
+
+The throughline: naive RAG optimises for the average document, but legal text rewards exact terms, respects strict structure, and punishes wasted context — and "whole-document" tasks need their own long-document strategy sized to what the model can actually do, because retrieval doesn't apply when there's no query to retrieve against. Each stage above trades a little latency for precision or completeness where it matters.
 
 ---
 
@@ -231,6 +235,8 @@ On first start, the embedding model (~23 MB) and the cross-encoder reranker (~80
 | `CHUNK_OVERLAP` | `150` | Character overlap between adjacent chunks |
 | `RERANK_TOP_N` | `10` | Candidates passed from hybrid retrieval into the reranker |
 | `RETRIEVAL_TOP_K` | `4` | Final chunks kept after reranking and sent to the LLM |
+| `MAP_REDUCE_BATCH_CHARS` | `6000` | Characters per map-step LLM call when summarisation/risk-analysis fall back to map-reduce for documents over the single-shot budget |
+| `MAP_REDUCE_MAX_CONCURRENCY` | `3` | Maximum concurrent map-step LLM calls in flight during the map-reduce fallback, kept low enough to stay under Groq's free-tier rate limit |
 | `DEBUG` | `false` | Enable debug-level logging |
 
 ---

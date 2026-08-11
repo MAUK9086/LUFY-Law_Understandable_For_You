@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     chunk_overlap: int = 150
     rerank_top_n: int = 10
     retrieval_top_k: int = 4
+    map_reduce_batch_chars: int = 6000
+    map_reduce_max_concurrency: int = 3
     app_title: str = "LUFY — Law Understandable For You"
     debug: bool = False
 

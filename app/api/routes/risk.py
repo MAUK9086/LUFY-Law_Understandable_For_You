@@ -5,17 +5,23 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from app.api.schemas import RiskRequest, RiskResponse
-from app.core.llm_client import analyse_risks
+from app.config import settings
+from app.core.llm_client import analyse_risks, analyse_risks_long
 from app.core.risk_analyzer import RiskFlag, parse_risk_response
 from app.core.translator import translate
-from app.core.vector_store import get_full_text, session_exists
-from app.utils.text_utils import truncate_to_token_budget
+from app.core.vector_store import get_chunks, get_full_text, session_exists
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_MAX_RISK_CHARS = 10_000
+# Documents at or under this size are risk-analysed in a single LLM call.
+# See summarize.py for the reasoning behind sizing this against the model's
+# actual 128K-token context window rather than an arbitrary small budget.
+# Longer documents go through analyse_risks_long's map-reduce path instead
+# of being truncated, so clauses past this size are not silently missed;
+# this should be a rare fallback, not the common case.
+_SINGLE_SHOT_CHAR_LIMIT = 50_000
 
 
 def _translate_flag(flag: RiskFlag, language: str) -> RiskFlag:
@@ -39,8 +45,10 @@ def _translate_flag(flag: RiskFlag, language: str) -> RiskFlag:
 async def risk_analysis(request: RiskRequest) -> RiskResponse:
     """Perform a three-tier risk analysis on the uploaded document.
 
-    Retrieves the full document text, calls the LLM for structured risk
-    output, validates it, and optionally translates flag details.
+    Documents that fit in a single LLM call are analysed directly. Longer
+    documents are analysed via a map-reduce pass over the full document (see
+    analyse_risks_long) so clauses are not silently dropped by truncation —
+    every clause in the document is seen by some batch.
 
     Args:
         request: RiskRequest with session_id, persona, and language.
@@ -56,10 +64,13 @@ async def risk_analysis(request: RiskRequest) -> RiskResponse:
         raise HTTPException(status_code=404, detail="Session not found. Please upload a document first.")
 
     text = get_full_text(request.session_id)
-    text = truncate_to_token_budget(text, _MAX_RISK_CHARS)
 
     try:
-        raw = analyse_risks(text, request.persona)
+        if len(text) <= _SINGLE_SHOT_CHAR_LIMIT:
+            raw = analyse_risks(text, request.persona)
+        else:
+            chunks = get_chunks(request.session_id)
+            raw = await analyse_risks_long(chunks, request.persona, settings.map_reduce_batch_chars)
         report = parse_risk_response(raw)
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

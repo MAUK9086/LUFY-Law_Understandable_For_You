@@ -53,3 +53,11 @@ def test_get_full_text_returns_original_not_joined_chunks():
 
 def test_delete_nonexistent_session_is_safe():
     vector_store.delete_session("does-not-exist")  # must not raise
+
+
+def test_get_chunks_returns_original_order():
+    sid, chunks, _ = _make_session()
+    try:
+        assert vector_store.get_chunks(sid) == chunks
+    finally:
+        vector_store.delete_session(sid)

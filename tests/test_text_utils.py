@@ -2,6 +2,7 @@
 
 from app.utils.text_utils import (
     clean_text,
+    group_chunks_for_budget,
     split_into_chunks,
     split_into_chunks_with_sections,
 )
@@ -59,3 +60,33 @@ def test_sections_align_with_chunks_and_detect_headers():
     # Every chunk should be attributed to one of the detected headers.
     assert set(sections) <= {"DEFINITIONS", "1. TERMINATION"}
     assert "DEFINITIONS" in sections
+
+
+def test_group_chunks_for_budget_packs_under_limit():
+    chunks = [f"Chunk {i}: " + ("x" * 30) for i in range(10)]
+    batches = group_chunks_for_budget(chunks, max_chars=100)
+    assert len(batches) > 1
+    assert all(len(b) <= 100 for b in batches)
+    # No chunk's content should be lost across the batching.
+    assert sum(b.count("Chunk") for b in batches) == len(chunks)
+
+
+def test_group_chunks_for_budget_preserves_order():
+    chunks = [f"Chunk-{i}" for i in range(6)]
+    batches = group_chunks_for_budget(chunks, max_chars=1000)
+    # Small chunks with a large budget should all land in one batch, in order.
+    assert len(batches) == 1
+    assert batches[0] == "\n\n".join(chunks)
+
+
+def test_group_chunks_for_budget_oversized_single_chunk_stands_alone():
+    huge = "x" * 500
+    chunks = ["small", huge, "small-again"]
+    batches = group_chunks_for_budget(chunks, max_chars=100)
+    assert huge in batches
+    # The oversized chunk isn't merged with its neighbours despite exceeding the budget alone.
+    assert not any(huge in b and b != huge for b in batches)
+
+
+def test_group_chunks_for_budget_empty_input():
+    assert group_chunks_for_budget([], max_chars=100) == []

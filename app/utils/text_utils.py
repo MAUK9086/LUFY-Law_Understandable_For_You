@@ -53,6 +53,37 @@ def clean_text(raw: str) -> str:
     return text.strip()
 
 
+def group_chunks_for_budget(chunks: list[str], max_chars: int) -> list[str]:
+    """Greedily batch pre-split chunks into groups that fit a character budget.
+
+    Used to feed a long document to an LLM in map-reduce passes: each
+    returned batch is small enough for one call, and consecutive chunks are
+    kept together (in original order) so a batch reads as a coherent excerpt
+    rather than disconnected fragments.
+
+    Args:
+        chunks: Ordered text chunks (e.g. from ``split_into_chunks``).
+        max_chars: Maximum length of each returned batch, in characters. A
+            single chunk longer than this on its own still becomes its own
+            (oversized) batch rather than being split further.
+
+    Returns:
+        A list of batch strings, each the concatenation of one or more
+        consecutive chunks joined by blank lines.
+    """
+    batches: list[str] = []
+    current = ""
+    for chunk in chunks:
+        if current and len(current) + 2 + len(chunk) > max_chars:
+            batches.append(current)
+            current = chunk
+        else:
+            current = f"{current}\n\n{chunk}" if current else chunk
+    if current:
+        batches.append(current)
+    return batches
+
+
 def truncate_to_token_budget(text: str, max_chars: int) -> str:
     """Hard-truncate text to a character budget.
 
